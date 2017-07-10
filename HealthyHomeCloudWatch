@@ -1,0 +1,193 @@
+exports.handler = (event, context, callback) => {
+    netatmoGetAuthKey(function (AuthKey) { 
+        netatmoGetValue(AuthKey, function (Data) {
+            putCloudWatch(Data, callback);
+            callback(null, "Netatmo HealthyHome recorded");    
+        });
+    });
+};
+
+function netatmoGetAuthKey(callback) {
+    var https = require('https');
+    var querystring = require('querystring');
+    
+    var post_data = querystring.stringify({
+        'grant_type' : 'password',
+        'client_id' : '[my client id]',
+        'client_secret' : '[my client secret]',
+        'username' : '[my username]',
+        'password' : '[my password',
+        'scope' : 'read_homecoach'
+    });
+
+  
+    var post_options = {
+        hostname: 'api.netatmo.com',
+        port: '443',
+        path: '/oauth2/token',
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+            'Content-Length': Buffer.byteLength(post_data)
+        }
+    };
+
+
+    var post_req = https.request(post_options, function(res) {
+        res.setEncoding('utf8');
+ 
+        res.on('data', function (chunk) {
+            var jsonContent = JSON.parse(chunk);
+            console.log('Access Token: ' + jsonContent.access_token);
+            callback(jsonContent.access_token);
+        });
+    });
+    
+    post_req.write(post_data);
+    post_req.end();
+    
+    post_req.on('error', (e) => {
+        console.error(e);
+    });
+}
+
+function netatmoGetValue(authKey, callback) {
+    var https = require('https');
+    
+    var endpoint = 'https://api.netatmo.com/api/gethomecoachsdata';
+    var deviceID = '[my device id]';
+	var queryString = '?access_token=' + authKey + '&device_id=' + deviceID;
+
+	https.get(endpoint + queryString, function (res) {
+        res.on('data', function (data) {
+		    var jsonContent = JSON.parse(data);
+		    console.log('Data: ' + JSON.stringify(jsonContent.body.devices[0]));
+		    callback(JSON.stringify(jsonContent.body.devices[0]));
+        });
+	}).on('error', (e) => {
+        console.error(e);
+    });
+}
+
+
+function putCloudWatch(Data, callback){
+    var AWS = require('aws-sdk');
+    AWS.config.region = 'us-west-2';
+    var cloudwatch = new AWS.CloudWatch();
+    
+    var jsonContent = JSON.parse(Data);
+    var time_utc = jsonContent.dashboard_data.time_utc;
+    var AbsolutePressure = jsonContent.dashboard_data.AbsolutePressure;
+    var health_idx = jsonContent.dashboard_data.health_idx;
+    var Noise = jsonContent.dashboard_data.Noise;
+    var Temperature = jsonContent.dashboard_data.Temperature;
+    var Humidity = jsonContent.dashboard_data.Humidity;
+    var Pressure = jsonContent.dashboard_data.Pressure;
+    var CO2 = jsonContent.dashboard_data.CO2;
+    var wifi_status = jsonContent.wifi_status;
+    var Location = jsonContent.name;
+    
+    var params = {
+            MetricData: [
+                {
+                    MetricName: 'Absolute Pressure', /* required */
+                    Dimensions: [
+                        {
+                            Name: 'Location', /* required */
+                            Value: Location /* required */
+                        },
+                    ],
+                    Timestamp: + time_utc,
+                    Unit: 'None',
+                    Value: + AbsolutePressure 
+                },
+                {
+                    MetricName: 'Health Index', /* required */
+                    Dimensions: [
+                        {
+                            Name: 'Location', /* required */
+                            Value: Location /* required */
+                        },
+                    ],
+                    Timestamp: + time_utc,
+                    Unit: 'None',
+                    Value: + health_idx 
+                },
+                {
+                    MetricName: 'Noise', /* required */
+                    Dimensions: [
+                        {
+                            Name: 'Location', /* required */
+                            Value: Location /* required */
+                        },
+                    ],
+                    Timestamp: + time_utc,
+                    Unit: 'None',
+                    Value: + Noise 
+                },
+                {
+                    MetricName: 'Temperature', /* required */
+                    Dimensions: [
+                        {
+                            Name: 'Location', /* required */
+                            Value: Location /* required */
+                        },
+                    ],
+                    Timestamp: + time_utc,
+                    Unit: 'None',
+                    Value: + Temperature 
+                },
+                {
+                    MetricName: 'Humidity', /* required */
+                    Dimensions: [
+                        {
+                            Name: 'Location', /* required */
+                            Value: Location /* required */
+                        },
+                    ],
+                    Timestamp: + time_utc,
+                    Unit: 'None',
+                    Value: + Humidity 
+                },
+                {
+                    MetricName: 'Pressure', /* required */
+                    Dimensions: [
+                        {
+                            Name: 'Location', /* required */
+                            Value: Location /* required */
+                        },
+                    ],
+                    Timestamp: + time_utc,
+                    Unit: 'None',
+                    Value: + Pressure 
+                },
+                {
+                    MetricName: 'CO2', /* required */
+                    Dimensions: [
+                        {
+                            Name: 'Location', /* required */
+                            Value: Location /* required */
+                        },
+                    ],
+                    Timestamp: + time_utc,
+                    Unit: 'None',
+                    Value: + CO2 
+                },
+                {
+                    MetricName: 'Wifi Status', /* required */
+                    Dimensions: [
+                        {
+                            Name: 'Location', /* required */
+                            Value: Location /* required */
+                        },
+                    ],
+                    Timestamp: + time_utc,
+                    Unit: 'None',
+                    Value: + wifi_status 
+                }
+            ],
+            Namespace: 'NetatmoHealthyHome' /* required */
+        };
+        
+        cloudwatch.putMetricData(params, function(err, data) {});
+}
